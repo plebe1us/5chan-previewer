@@ -16,31 +16,13 @@ if [ -z "${DEPLOY_HOST+xxx}" ]; then echo "DEPLOY_HOST not set" && exit; fi
 if [ -z "${DEPLOY_USER+xxx}" ]; then echo "DEPLOY_USER not set" && exit; fi
 if [ -z "${DEPLOY_PASSWORD+xxx}" ]; then echo "DEPLOY_PASSWORD not set" && exit; fi
 
-SCRIPT="
-cd /home
-git clone https://github.com/plebbit/plebbit-previewer.git
-cd plebbit-previewer
-git reset HEAD --hard
-git pull
-"
-
-# execute script over ssh
-echo "$SCRIPT" | sshpass -p "$DEPLOY_PASSWORD" ssh "$DEPLOY_USER"@"$DEPLOY_HOST"
-
 # copy files
-FILE_NAMES=(
-  "config.js"
-  "start.js"
-)
-
-# copy files
-for FILE_NAME in ${FILE_NAMES[@]}; do
-  sshpass -p "$DEPLOY_PASSWORD" scp $FILE_NAME "$DEPLOY_USER"@"$DEPLOY_HOST":/home/plebbit-previewer
-done
+echo "mkdir -p /home/seedit-proxy" | sshpass -p "$DEPLOY_PASSWORD" ssh "$DEPLOY_USER"@"$DEPLOY_HOST"
+sshpass -p "$DEPLOY_PASSWORD" scp scripts/start-seedit-proxy.sh "$DEPLOY_USER"@"$DEPLOY_HOST":/home/seedit-proxy/start-seedit-proxy.sh
 
 SCRIPT="
-cd /home/plebbit-previewer
-scripts/start-docker.sh
+cd /home/seedit-proxy
+./start-seedit-proxy.sh
 "
 
 echo "$SCRIPT" | sshpass -p "$DEPLOY_PASSWORD" ssh "$DEPLOY_USER"@"$DEPLOY_HOST"

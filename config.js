@@ -8,7 +8,16 @@ module.exports = {
     ],
   },
   redirects: [
-    '5chan.app'
-  ],
-  multisubUrl: 'https://raw.githubusercontent.com/plebbit/lists/master/5chan-multisub.json'
+    'seedit.app',
+    'plebchan.app',
+    'seedit.eth.limo',
+    'plebchan.eth.limo',
+    'plebones.eth.limo',
+    'seedit.eth.link',
+    'plebchan.eth.link',
+    'plebones.eth.link',
+    'seedit.eth.sucks',
+    'plebchan.eth.sucks',
+    'plebones.eth.sucks'
+  ]
 }

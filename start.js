@@ -6,7 +6,7 @@ const config = require('./config')
 const express = require('express')
 const app = express()
 app.on('error', e => console.log(e.message))
-const port = process.env.FIVECHAN_PREVIEWER_PORT || config.port
+const port = process.env.PLEBBIT_PREVIEWER_PORT || config.port
 assert(port, 'missing config.port')
 
 const {getCommentMediaInfo} = require('./lib/utils')
@@ -15,10 +15,9 @@ const commentCache = new QuickLRU({maxSize: 10000})
 const htmlCache = new QuickLRU({maxSize: 10000})
 const failedCache = new QuickLRU({maxSize: 100000})
 const Debug = require('debug')
-const debug = Debug('5chan-previewer:server')
-Debug.enable('5chan-previewer:*')
+const debug = Debug('plebbit-previewer:server')
+Debug.enable('plebbit-previewer:*')
 const maxAttempts = 5
-const fetch = require('node-fetch')
 
 // use google headers on twitter or doesn't work
 const ogs = require('open-graph-scraper')
@@ -35,97 +34,20 @@ import('@plebbit/plebbit-js').then(async Plebbit => {
 
 assert(Array.isArray(config.redirects), `config.redirects not an array`)
 const allowedRedirects = new Set(config.redirects)
-assert(typeof config.redirects[0] === 'string', `config.redirects[0] not a string`)
+assert(typeof config.redirects[0] === 'string', `config.redirects[0] not a a string`)
 const defaultRedirect = config.redirects[0]
 
-// Directory resolution mappings
-let directoryToAddress = new Map() // e.g., "biz" -> "business-and-finance.eth"
-let addressToDirectory = new Map() // e.g., "business-and-finance.eth" -> "biz"
-
-// Fetch and update multisub mappings
-const fetchMultisub = async () => {
-  try {
-    debug('fetching multisub from', config.multisubUrl)
-    const response = await fetch(config.multisubUrl)
-    if (!response.ok) {
-      throw new Error(`Failed to fetch multisub: ${response.statusText}`)
-    }
-    const multisub = await response.json()
-    
-    // Clear existing mappings
-    directoryToAddress.clear()
-    addressToDirectory.clear()
-    
-    // Build bidirectional mappings
-    if (Array.isArray(multisub.subplebbits)) {
-      for (const sub of multisub.subplebbits) {
-        if (sub.address && sub.title) {
-          // Extract directory from title (e.g., "/biz/ - Business & Finance" -> "biz")
-          const directoryMatch = sub.title.match(/^\/([^\/]+)\//)
-          if (directoryMatch) {
-            const directory = directoryMatch[1]
-            directoryToAddress.set(directory, sub.address)
-            addressToDirectory.set(sub.address, directory)
-            debug(`mapped directory "${directory}" -> "${sub.address}"`)
-          }
-        }
-      }
-    }
-    
-    debug(`loaded ${directoryToAddress.size} directory mappings`)
-  }
-  catch (e) {
-    debug('failed fetching multisub', e.message)
-  }
-}
-
-// Fetch multisub on startup
-fetchMultisub()
-
-// Refresh multisub every hour
-setInterval(fetchMultisub, 60 * 60 * 1000)
-
-// Resolve boardOrAddress to subplebbitAddress and determine redirect board
-const resolveBoard = (boardOrAddress) => {
-  // Check if it's a directory (maps to an address)
-  if (directoryToAddress.has(boardOrAddress)) {
-    const subplebbitAddress = directoryToAddress.get(boardOrAddress)
-    return {
-      subplebbitAddress,
-      redirectBoard: boardOrAddress // Use directory for redirect
-    }
-  }
-  
-  // Check if it's a subplebbit address that maps to a directory
-  if (addressToDirectory.has(boardOrAddress)) {
-    const directory = addressToDirectory.get(boardOrAddress)
-    return {
-      subplebbitAddress: boardOrAddress,
-      redirectBoard: directory // Use directory for redirect
-    }
-  }
-  
-  // It's a subplebbit address without a directory mapping
-  return {
-    subplebbitAddress: boardOrAddress,
-    redirectBoard: boardOrAddress // Use address for redirect
-  }
-}
-
-const serve = async (req, res, boardOrAddress, commentCid) => {
+const serve = async (req, res, subplebbitAddress, commentCid) => {
   let redirect = req.query.redirect?.replace?.(/\/$/, '')
   // allow redirect=1 to redirect to config.redirects[1]
   if (config.redirects[redirect]) {
     redirect = config.redirects[redirect]
   }
 
-  debug(req.url, boardOrAddress, commentCid, redirect)
+  debug(req.url, subplebbitAddress, commentCid, redirect)
   if (!allowedRedirects.has(redirect)) {
     redirect = defaultRedirect
   }
-
-  // Resolve board/address to subplebbitAddress and determine redirect board
-  const {subplebbitAddress, redirectBoard} = resolveBoard(boardOrAddress)
 
   debug('getting comment', commentCid)
   let comment = commentCache.get(commentCid)
@@ -146,7 +68,7 @@ const serve = async (req, res, boardOrAddress, commentCid) => {
       }
       comment.mediaInfo = getCommentMediaInfo(comment)
 
-      // try adding short subplebbit address
+      // try adding short subplebbit addres
       try {
         comment.shortSubplebbitAddress = getShortAddress(comment.subplebbitAddress)
       }
@@ -177,13 +99,12 @@ const serve = async (req, res, boardOrAddress, commentCid) => {
   }
   debug(comment)
 
-  // Validate that the resolved subplebbitAddress matches the comment's subplebbitAddress
   if (subplebbitAddress && subplebbitAddress !== comment.subplebbitAddress) {
     debug(`subplebbitAddress '${subplebbitAddress}' !== '${comment.subplebbitAddress}'`)
     return res.status(404).end('invalid subplebbit address')
   }
 
-  let html = htmlCache.get(commentCid + redirect + redirectBoard)
+  let html = htmlCache.get(commentCid + redirect)
   if (!html) {
     let twitterCard = 'summary'
 
@@ -212,13 +133,13 @@ const serve = async (req, res, boardOrAddress, commentCid) => {
       title = '-'
     }
 
-    // description - 5chan style without Reddit prefixes
-    let description = `Posted by ${comment.shortAuthorAddress} in /${redirectBoard}/`
+    // description
+    let description = `Posted by u/${comment.shortAuthorAddress} in p/${comment.shortSubplebbitAddress || comment.subplebbitAddress}`
     if (comment.content?.trim?.()) {
       description += ` - ${comment.content.trim()}`
     }
 
-    // add query string back
+    // add query string back, useful for ?context=3 on old.reddit
     let queryString = ''
     for (const query in req.query) {
       if (query === 'redirect' || query === 'r') {
@@ -233,8 +154,17 @@ const serve = async (req, res, boardOrAddress, commentCid) => {
       queryString += `${query}=${req.query[query]}`
     }
 
-    const redirectUrl = `https://${redirect}/#/${redirectBoard}/thread/${commentCid}${queryString}`
+    const redirectUrl = `https://${redirect}/#/p/${comment.subplebbitAddress}/c/${commentCid}${queryString}`
     const iconUrl = `https://${redirect}/favicon.ico`
+
+    // derive site name from redirect url
+    let siteName = 'plebbit'
+    if (redirect.includes('seedit')) {
+      siteName = 'seedit'
+    }
+    else if (redirect.includes('plebchan')) {
+      siteName = 'plebchan'
+    }
 
     html = `<!DOCTYPE html>
 <html>
@@ -243,7 +173,7 @@ const serve = async (req, res, boardOrAddress, commentCid) => {
     <title>${title}</title>
     <meta name="title" content="${title}"/>
     <meta name="description" content="${description}"/>
-    <meta property="og:site_name" content="5chan" />
+    <meta property="og:site_name" content="${siteName}" />
     <meta property="og:type" content="website"/>
     <meta property="og:url" content="${redirectUrl}"/>
     <meta property="og:title" content="${title}"/>
@@ -262,7 +192,7 @@ const serve = async (req, res, boardOrAddress, commentCid) => {
   </body>
 </html>`
 
-    htmlCache.set(commentCid + redirect + redirectBoard, html)
+    htmlCache.set(commentCid + redirect, html)
   }
 
   // the comment is immutable, so set the cache a long time
@@ -292,13 +222,28 @@ app.get('/robots.txt', async (req, res) => {
 Allow: /`)
 })
 
-// New route: /:boardOrAddress/thread/:commentCid
-app.get('/:boardOrAddress/thread/:commentCid', async (req, res) => {
+app.get('/p/:subplebbitAddress/c/:commentCid', async (req, res) => {
   if (dontServe(req, res)) {
     return
   }
-  const {boardOrAddress, commentCid} = req.params
-  await serve(req, res, boardOrAddress, commentCid)
+  const {subplebbitAddress, commentCid} = req.params
+  await serve(req, res, subplebbitAddress, commentCid)
+})
+
+app.get('/c/:commentCid', async (req, res) => {
+  if (dontServe(req, res)) {
+    return
+  }
+  const {commentCid} = req.params
+  await serve(req, res, undefined, commentCid)
+})
+
+app.get('/:commentCid', async (req, res) => {
+  if (dontServe(req, res)) {
+    return
+  }
+  const {commentCid} = req.params
+  await serve(req, res, undefined, commentCid)
 })
 
 app.listen(port, () => debug(`listening on port ${port}`))
