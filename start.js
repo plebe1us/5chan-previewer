@@ -44,6 +44,9 @@ let addressToDirectory = new Map() // e.g., "business-and-finance.eth" -> "biz"
 
 // Fetch and update multisub mappings
 const fetchMultisub = async () => {
+  if (!config.multisubUrl) {
+    throw new Error('missing config.multisubUrl')
+  }
   try {
     debug('fetching multisub from', config.multisubUrl)
     const response = await fetch(config.multisubUrl)
@@ -78,12 +81,6 @@ const fetchMultisub = async () => {
     debug('failed fetching multisub', e.message)
   }
 }
-
-// Fetch multisub on startup
-fetchMultisub()
-
-// Refresh multisub every hour
-setInterval(fetchMultisub, 60 * 60 * 1000)
 
 // Resolve boardOrAddress to subplebbitAddress and determine redirect board
 const resolveBoard = (boardOrAddress) => {
@@ -301,9 +298,15 @@ app.get('/:boardOrAddress/thread/:commentCid', async (req, res) => {
   await serve(req, res, boardOrAddress, commentCid)
 })
 
-app.listen(port, () => debug(`listening on port ${port}`))
-  .on('error', e => debug(e.message))
+const start = async () => {
+  // Fetch multisub on startup
+  await fetchMultisub()
 
-// uncomment to listen on port 80 as well
-// app.listen(80, () => console.log(`listening on port ${port}`))
-//   .on('error', e => console.log(e.message))
+  // Refresh multisub every hour
+  setInterval(fetchMultisub, 60 * 60 * 1000)
+
+  app.listen(port, () => debug(`listening on port ${port}`))
+    .on('error', e => debug(e.message))
+}
+
+start()
