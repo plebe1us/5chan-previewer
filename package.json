@@ -1,5 +1,5 @@
 {
-  "name": "plebbit-previewer",
+  "name": "5chan-previewer",
   "version": "1.0.0",
   "scripts": {
     "start": "node ./start"
