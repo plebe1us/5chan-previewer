@@ -79,6 +79,7 @@ const fetchMultisub = async () => {
   }
   catch (e) {
     debug('failed fetching multisub', e.message)
+    throw e
   }
 }
 
@@ -300,13 +301,27 @@ app.get('/:boardOrAddress/thread/:commentCid', async (req, res) => {
 
 const start = async () => {
   // Fetch multisub on startup
-  await fetchMultisub()
+  try {
+    await fetchMultisub()
+  }
+  catch (e) {
+    if (e.message === 'missing config.multisubUrl') {
+      debug('Warning: config.multisubUrl is missing, directory mappings will not be available')
+    }
+    else {
+      debug('failed initial multisub fetch', e.message)
+    }
+    // Decide to continue startup anyway
+  }
 
   // Refresh multisub every hour
-  setInterval(fetchMultisub, 60 * 60 * 1000)
+  setInterval(() => fetchMultisub().catch(e => debug('failed periodic multisub fetch', e.message)), 60 * 60 * 1000)
 
   app.listen(port, () => debug(`listening on port ${port}`))
     .on('error', e => debug(e.message))
 }
 
-start()
+start().catch(e => {
+  debug('failed to start', e.message)
+  process.exit(1)
+})
